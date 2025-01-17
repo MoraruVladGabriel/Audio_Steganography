@@ -2,15 +2,16 @@ import wave
 import numpy as np
 import tkinter as tk
 from tkinter import filedialog, messagebox
+import os
 
 
-def encode_audio(input_audio_path, output_audio_path, secret_message):
+def encode_audio(input_audio_path, secret_message):
     """
     Encode a secret message into an audio file.
 
     :param input_audio_path: Path to the input WAV file
-    :param output_audio_path: Path to the output WAV file with the secret message encoded
     :param secret_message: The secret message to encode
+    :return: Path to the output WAV file with the secret message encoded
     """
     with wave.open(input_audio_path, 'rb') as audio:
         params = audio.getparams()
@@ -27,9 +28,12 @@ def encode_audio(input_audio_path, output_audio_path, secret_message):
     for i, bit in enumerate(secret_message_binary):
         encoded_audio_data[i] = (encoded_audio_data[i] & ~1) | int(bit)
 
+    output_audio_path = os.path.splitext(input_audio_path)[0] + "_encoded.wav"
     with wave.open(output_audio_path, 'wb') as encoded_audio:
         encoded_audio.setparams(params)
         encoded_audio.writeframes(encoded_audio_data.tobytes())
+
+    return output_audio_path
 
 
 def decode_audio(encoded_audio_path):
@@ -62,19 +66,12 @@ def select_input_file(entry):
     entry.insert(0, file_path)
 
 
-def select_output_file(entry):
-    file_path = filedialog.asksaveasfilename(defaultextension=".wav", filetypes=[("WAV files", "*.wav")])
-    entry.delete(0, tk.END)
-    entry.insert(0, file_path)
-
-
-def encode_message_ui(input_entry, output_entry, message_entry):
+def encode_message_ui(input_entry, message_entry):
     input_path = input_entry.get()
-    output_path = output_entry.get()
     secret_message = message_entry.get()
 
     try:
-        encode_audio(input_path, output_path, secret_message)
+        output_path = encode_audio(input_path, secret_message)
         messagebox.showinfo("Success", f"Message encoded successfully into {output_path}")
     except Exception as e:
         messagebox.showerror("Error", str(e))
@@ -111,17 +108,12 @@ def create_gui():
     input_entry.pack()
     tk.Button(encode_frame, text="Browse", command=lambda: select_input_file(input_entry)).pack()
 
-    tk.Label(encode_frame, text="Output Audio File:").pack(anchor="w")
-    output_entry = tk.Entry(encode_frame, width=40)
-    output_entry.pack()
-    tk.Button(encode_frame, text="Browse", command=lambda: select_output_file(output_entry)).pack()
-
     tk.Label(encode_frame, text="Secret Message:").pack(anchor="w")
     message_entry = tk.Entry(encode_frame, width=40)
     message_entry.pack()
 
-    tk.Button(encode_frame, text="Encode Message",
-              command=lambda: encode_message_ui(input_entry, output_entry, message_entry)).pack(pady=10)
+    tk.Button(encode_frame, text="Encode Message", command=lambda: encode_message_ui(input_entry, message_entry)).pack(
+        pady=10)
 
     # Decoding Section
     tk.Label(decode_frame, text="Decoding", font=("Arial", 14)).pack()
