@@ -3,17 +3,35 @@ import numpy as np
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
+from pydub import AudioSegment
+
+
+def convert_to_wav(input_audio_path):
+    """
+    Convert audio file to WAV format if it's not already a WAV file.
+    :param input_audio_path: Path to the input audio file
+    :return: Path to the converted WAV file
+    """
+    if input_audio_path.lower().endswith('.wav'):
+        return input_audio_path
+
+    audio = AudioSegment.from_file(input_audio_path)
+    wav_path = os.path.splitext(input_audio_path)[0] + "_converted.wav"
+    audio.export(wav_path, format="wav")
+    return wav_path
 
 
 def encode_audio(input_audio_path, secret_message):
     """
     Encode a secret message into an audio file.
 
-    :param input_audio_path: Path to the input WAV file
+    :param input_audio_path: Path to the input audio file
     :param secret_message: The secret message to encode
     :return: Path to the output WAV file with the secret message encoded
     """
-    with wave.open(input_audio_path, 'rb') as audio:
+    wav_path = convert_to_wav(input_audio_path)
+
+    with wave.open(wav_path, 'rb') as audio:
         params = audio.getparams()
         frames = audio.readframes(params.nframes)
 
@@ -28,7 +46,7 @@ def encode_audio(input_audio_path, secret_message):
     for i, bit in enumerate(secret_message_binary):
         encoded_audio_data[i] = (encoded_audio_data[i] & ~1) | int(bit)
 
-    output_audio_path = os.path.splitext(input_audio_path)[0] + "_encoded.wav"
+    output_audio_path = os.path.splitext(wav_path)[0] + "_encoded.wav"
     with wave.open(output_audio_path, 'wb') as encoded_audio:
         encoded_audio.setparams(params)
         encoded_audio.writeframes(encoded_audio_data.tobytes())
@@ -43,7 +61,9 @@ def decode_audio(encoded_audio_path):
     :param encoded_audio_path: Path to the encoded WAV file
     :return: The decoded secret message
     """
-    with wave.open(encoded_audio_path, 'rb') as audio:
+    wav_path = convert_to_wav(encoded_audio_path)
+
+    with wave.open(wav_path, 'rb') as audio:
         frames = audio.readframes(audio.getnframes())
         audio_data = np.frombuffer(frames, dtype=np.int16)
 
@@ -61,7 +81,7 @@ def decode_audio(encoded_audio_path):
 
 
 def select_input_file(entry):
-    file_path = filedialog.askopenfilename(filetypes=[("WAV files", "*.wav")])
+    file_path = filedialog.askopenfilename(filetypes=[("Audio files", "*.wav *.mp3 *.flac *.ogg *.aac *.m4a")])
     entry.delete(0, tk.END)
     entry.insert(0, file_path)
 
