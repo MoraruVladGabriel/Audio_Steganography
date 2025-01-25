@@ -5,39 +5,55 @@ from tkinter import filedialog, messagebox
 import os
 from pydub import AudioSegment
 from cryptography.fernet import Fernet
+from datetime import datetime
+
+LOG_FILE = "activity_log.txt"
+
+
+def log_activity(message):
+    """Log activity to a file."""
+    with open(LOG_FILE, "a") as log:
+        log.write(f"{datetime.now()}: {message}\n")
 
 
 def generate_key():
-    """
-    Generate a new encryption key.
-    :return: Encryption key as a string
-    """
-    return Fernet.generate_key().decode()
+    """Generate a new encryption key."""
+    key = Fernet.generate_key()
+    return key
 
 
-def encrypt_message(secret_message, key):
-    """
-    Encrypt a secret message using the provided key.
-    :param secret_message: The secret message to encrypt
-    :param key: The encryption key
-    :return: Encrypted message as bytes
-    """
-    cipher_suite = Fernet(key.encode())
-    return cipher_suite.encrypt(secret_message.encode())
+def save_key_to_file(key, input_audio_path):
+    """Save the encryption key to a file, named after the input audio file."""
+    # Extrage numele fișierului fără extensie
+    base_name = os.path.splitext(os.path.basename(input_audio_path))[0]
+
+    # Creează un nume de fișier pentru cheia de criptare
+    key_file_path = f"{base_name}_key.txt"
+
+    # Salvează cheia în fișierul respectiv
+    with open(key_file_path, "wb") as key_file:
+        key_file.write(key)
+
+    messagebox.showinfo("Success", f"Key saved to {key_file_path}")
+    log_activity(f"Key saved to {key_file_path}")
 
 
-def decrypt_message(encrypted_message, key):
-    """
-    Decrypt an encrypted message using the provided key.
-    :param encrypted_message: The encrypted message as bytes
-    :param key: The encryption key
-    :return: Decrypted message as a string
-    """
-    cipher_suite = Fernet(key.encode())
-    return cipher_suite.decrypt(encrypted_message).decode()
+def load_key_from_file():
+    """Load an encryption key from a file."""
+    file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
+    if file_path:
+        with open(file_path, "rb") as key_file:
+            return key_file.read()
+    messagebox.showerror("Error", "No key file selected.")
+    return None
 
 
 def convert_to_wav(input_audio_path):
+    """
+    Convert audio file to WAV format if it's not already a WAV file.
+    :param input_audio_path: Path to the input audio file
+    :return: Path to the converted WAV file
+    """
     if input_audio_path.lower().endswith('.wav'):
         return input_audio_path
 
@@ -46,18 +62,26 @@ def convert_to_wav(input_audio_path):
     audio.export(wav_path, format="wav")
     return wav_path
 
+def encode_audio(input_audio_path, secret_message, encryption_key):
+    """
+    Encode a secret message into an audio file.
 
-def encode_audio(input_audio_path, secret_message, key):
+    :param input_audio_path: Path to the input audio file
+    :param secret_message: The secret message to encode
+    :param encryption_key: Encryption key for securing the message
+    :return: Path to the output WAV file with the secret message encoded
+    """
     wav_path = convert_to_wav(input_audio_path)
+    cipher = Fernet(encryption_key)
+    encrypted_message = cipher.encrypt(secret_message.encode())
+
+    secret_message_binary = ''.join(format(byte, '08b') for byte in encrypted_message) + '00000000'
 
     with wave.open(wav_path, 'rb') as audio:
         params = audio.getparams()
         frames = audio.readframes(params.nframes)
 
         audio_data = np.frombuffer(frames, dtype=np.int16)
-
-    encrypted_message = encrypt_message(secret_message, key)
-    secret_message_binary = ''.join(format(byte, '08b') for byte in encrypted_message) + '00000000'
 
     if len(secret_message_binary) > len(audio_data):
         raise ValueError("The secret message is too large to encode in this audio file.")
@@ -71,10 +95,20 @@ def encode_audio(input_audio_path, secret_message, key):
         encoded_audio.setparams(params)
         encoded_audio.writeframes(encoded_audio_data.tobytes())
 
+    log_activity(f"Message encoded into {output_audio_path}")
+
+    # Plot the spectrogram of the encoded audio
     return output_audio_path
 
 
-def decode_audio(encoded_audio_path, key):
+def decode_audio(encoded_audio_path, encryption_key):
+    """
+    Decode a secret message from an audio file.
+
+    :param encoded_audio_path: Path to the encoded WAV file
+    :param encryption_key: Encryption key for decoding the message
+    :return: The decoded secret message
+    """
     wav_path = convert_to_wav(encoded_audio_path)
 
     with wave.open(wav_path, 'rb') as audio:
@@ -91,7 +125,11 @@ def decode_audio(encoded_audio_path, key):
             break
         encrypted_message += bytes([int(''.join(byte), 2)])
 
-    return decrypt_message(encrypted_message, key)
+    cipher = Fernet(encryption_key)
+    decrypted_message = cipher.decrypt(encrypted_message).decode()
+
+    log_activity(f"Message decoded from {encoded_audio_path}")
+    return decrypted_message
 
 
 def select_input_file(entry):
@@ -103,14 +141,14 @@ def select_input_file(entry):
 def encode_message_ui(input_entry, message_entry, key_entry):
     input_path = input_entry.get()
     secret_message = message_entry.get()
-    key = key_entry.get()
-
-    if not key:
-        messagebox.showerror("Error", "Encryption key is required.")
-        return
+    encryption_key = key_entry.get().encode()
 
     try:
-        output_path = encode_audio(input_path, secret_message, key)
+        # Apelează funcția pentru a salva cheia, folosind calea fișierului audio
+        save_key_to_file(encryption_key, input_path)
+
+        output_path = encode_audio(input_path, secret_message, encryption_key)
+        key_entry.delete(0, tk.END)  # Clear the decryption key field
         messagebox.showinfo("Success", f"Message encoded successfully into {output_path}")
     except Exception as e:
         messagebox.showerror("Error", str(e))
@@ -118,22 +156,19 @@ def encode_message_ui(input_entry, message_entry, key_entry):
 
 def decode_message_ui(input_entry, key_entry, message_label):
     input_path = input_entry.get()
-    key = key_entry.get()
-
-    if not key:
-        messagebox.showerror("Error", "Encryption key is required.")
-        return
+    encryption_key = key_entry.get().encode()
 
     try:
-        decoded_message = decode_audio(input_path, key)
+        decoded_message = decode_audio(input_path, encryption_key)
         message_label.config(text=f"Decoded message: {decoded_message}")
+        key_entry.delete(0, tk.END)  # Clear the decryption key field
     except Exception as e:
         messagebox.showerror("Error", str(e))
 
 
 def create_gui():
     root = tk.Tk()
-    root.title("Audio Steganography with Encryption")
+    root.title("Audio Steganography")
 
     tab_control = tk.Frame(root)
     tab_control.pack(pady=10, padx=10)
@@ -157,8 +192,11 @@ def create_gui():
     message_entry.pack()
 
     tk.Label(encode_frame, text="Encryption Key:").pack(anchor="w")
-    key_entry = tk.Entry(encode_frame, width=40)
+    key_entry = tk.Entry(encode_frame, width=40, show="*")
     key_entry.pack()
+
+    tk.Button(encode_frame, text="Generate Key", command=lambda: key_entry.insert(0, generate_key().decode())).pack()
+    # tk.Button(encode_frame, text="Save Key", command=lambda: save_key_to_file(key_entry.get().encode(), input_entry.get())).pack()
 
     tk.Button(encode_frame, text="Encode Message",
               command=lambda: encode_message_ui(input_entry, message_entry, key_entry)).pack(pady=10)
@@ -172,8 +210,10 @@ def create_gui():
     tk.Button(decode_frame, text="Browse", command=lambda: select_input_file(decode_input_entry)).pack()
 
     tk.Label(decode_frame, text="Encryption Key:").pack(anchor="w")
-    decode_key_entry = tk.Entry(decode_frame, width=40)
+    decode_key_entry = tk.Entry(decode_frame, width=40, show="*")
     decode_key_entry.pack()
+    tk.Button(decode_frame, text="Load Key",
+              command=lambda: decode_key_entry.insert(0, load_key_from_file().decode())).pack()
 
     message_label = tk.Label(decode_frame, text="Decoded message will appear here.")
     message_label.pack(pady=10)
@@ -185,5 +225,4 @@ def create_gui():
 
 
 if __name__ == "__main__":
-    print(generate_key())
     create_gui()
